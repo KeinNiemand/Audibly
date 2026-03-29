@@ -107,6 +107,8 @@
 
     <ItemGroup>
         <PackageReference Include="AutoMapper" Version="14.0.0" />
+        <PackageReference Include="LibVLCSharp" Version="3.9.4" />
+        <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23" />
         <PackageReference Include="CommunityToolkit.Labs.WinUI.Controls.MarkdownTextBlock" Version="0.1.251217-build.2433" />
         <PackageReference Include="CommunityToolkit.Labs.WinUI.Controls.Marquee" Version="0.1.251217-build.2433" />
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
