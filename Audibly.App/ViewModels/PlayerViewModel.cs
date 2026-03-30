@@ -60,6 +60,8 @@ public class PlayerViewModel : BindableBase, IDisposable
 
     private bool _mediaJustOpened;
 
+    private bool _skipSeeking;
+
     public PlayerViewModel()
     {
         _libVLC = new LibVLC("--no-video");
@@ -207,7 +209,12 @@ public class PlayerViewModel : BindableBase, IDisposable
     public TimeSpan CurrentPosition
     {
         get => TimeSpan.FromMilliseconds(_mediaPlayer.Time >= 0 ? _mediaPlayer.Time : 0);
-        set => _mediaPlayer.Time = (long)value.TotalMilliseconds;
+        set {
+            if (!_skipSeeking)
+            {
+                _mediaPlayer.Time = (long)value.TotalMilliseconds;
+            }
+        }
     }
 
     /// <summary>
@@ -306,27 +313,30 @@ public class PlayerViewModel : BindableBase, IDisposable
 
     private void OnTimeChanged(object? sender, MediaPlayerTimeChangedEventArgs e)
     {
-        if (NowPlaying == null) return;
-
-        var currentPositionMs = e.Time;
-
-        if (!NowPlaying.CurrentChapter.InRange(currentPositionMs))
+        _ = _dispatcherQueue.EnqueueAsync(() =>
         {
-            var newChapter = NowPlaying.Chapters.FirstOrDefault(c =>
-                c.ParentSourceFileIndex == NowPlaying.CurrentSourceFileIndex &&
-                c.InRange(currentPositionMs));
+            if (NowPlaying == null) return;
 
-            if (newChapter != null)
-                _ = _dispatcherQueue.EnqueueAsync(() =>
+            var currentPositionMs = e.Time;
+
+            if (!NowPlaying.CurrentChapter.InRange(currentPositionMs))
+            {
+                var newChapter = NowPlaying.Chapters.FirstOrDefault(c =>
+                    c.ParentSourceFileIndex == NowPlaying.CurrentSourceFileIndex &&
+                    c.InRange(currentPositionMs));
+
+                if (newChapter != null)
                 {
+                    _skipSeeking = true;
                     NowPlaying.CurrentChapterIndex = ChapterComboSelectedIndex = newChapter.Index;
                     NowPlaying.CurrentChapterTitle = newChapter.Title;
                     ChapterDurationMs = (int)(NowPlaying.CurrentChapter.EndTime - NowPlaying.CurrentChapter.StartTime);
-                });
-        }
+                    _skipSeeking = false;
+                }
+                ;
+            }
 
-        _ = _dispatcherQueue.EnqueueAsync(async () =>
-        {
+
             ChapterPositionMs = (int)(currentPositionMs > NowPlaying.CurrentChapter.StartTime
                 ? currentPositionMs - NowPlaying.CurrentChapter.StartTime
                 : 0);
@@ -341,9 +351,12 @@ public class PlayerViewModel : BindableBase, IDisposable
             tmp += currentPositionMs / 1000.0;
             NowPlaying.Progress = Math.Ceiling(tmp / NowPlaying.Duration * 100);
             NowPlaying.IsCompleted = NowPlaying.Progress >= 99.9;
+            ;
+
+            _ = Task.Run(async () => await NowPlaying.SaveAsync());
+
         });
 
-        _ = Task.Run(async () => await NowPlaying.SaveAsync());
     }
 
     private void HandleMediaOpened()
@@ -566,6 +579,8 @@ public class PlayerViewModel : BindableBase, IDisposable
         _mediaJustOpened = true;
         using (var media = new Media(_libVLC, audiobook.CurrentSourceFile.FilePath, FromType.FromPath))
         {
+            //this makes vlc ignore chapters usually it's chapter aware but that breaks our existing logic assuming the player position is absolute from file start instead of chapter start.
+            media.AddOption(":demux=avformat");
             _mediaPlayer.Play(media);
         }
 
@@ -590,11 +605,10 @@ public class PlayerViewModel : BindableBase, IDisposable
         _mediaJustOpened = true;
         using (var media = new Media(_libVLC, NowPlaying.CurrentSourceFile.FilePath, FromType.FromPath))
         {
+            media.AddOption(":demux=avformat");
             _mediaPlayer.Play(media);
-
-            Debug.Print(media.Duration.ToString());
         }
-        
+
     }
 
     # endregion
