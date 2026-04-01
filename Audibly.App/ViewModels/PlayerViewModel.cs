@@ -391,14 +391,13 @@ public class PlayerViewModel : BindableBase, IDisposable
             if (_pendingAutoPlay || _playWhenMediaOpens)
             {
                 _pendingAutoPlay = false;
-                _playWhenMediaOpens = false;
-                Play();
             }
             else
             {
-                _playWhenMediaOpens = false;
                 _mediaPlayer.Pause();
             }
+
+            _playWhenMediaOpens = false;
         });
     }
 
