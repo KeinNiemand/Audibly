@@ -397,11 +397,10 @@ public class PlayerViewModel : BindableBase, IDisposable
 
                 _mediaPlayer.SetRate((float)PlaybackSpeed);
 
-                if (_pendingAutoPlay || _playWhenMediaOpens)
-                {
-                    _pendingAutoPlay = false;
-                }
-                else
+                var shouldKeepPlaying = _pendingAutoPlay || _playWhenMediaOpens;
+                _pendingAutoPlay = false;
+
+                if (!shouldKeepPlaying)
                 {
                     _mediaPlayer.Pause();
                 }
