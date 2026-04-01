@@ -5,6 +5,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using Audibly.App.Extensions;
@@ -61,6 +62,8 @@ public class PlayerViewModel : BindableBase, IDisposable
     private bool _mediaJustOpened;
 
     private bool _playWhenMediaOpens;
+
+    private int _suspendTimeChangedUpdates;
 
     private bool _skipSeeking;
 
@@ -308,6 +311,7 @@ public class PlayerViewModel : BindableBase, IDisposable
 
     private void OnEncounteredError(object? sender, EventArgs e)
     {
+        Interlocked.Exchange(ref _suspendTimeChangedUpdates, 0);
         _dispatcherQueue.TryEnqueue(() => NowPlaying = null);
 
         App.ViewModel.EnqueueNotification(new Notification
@@ -320,6 +324,9 @@ public class PlayerViewModel : BindableBase, IDisposable
 
     private void OnTimeChanged(object? sender, MediaPlayerTimeChangedEventArgs e)
     {
+        if (Volatile.Read(ref _suspendTimeChangedUpdates) != 0)
+            return;
+
         _ = _dispatcherQueue.EnqueueAsync(() =>
         {
             if (NowPlaying == null) return;
@@ -371,33 +378,40 @@ public class PlayerViewModel : BindableBase, IDisposable
         if (NowPlaying == null) return;
         _dispatcherQueue.EnqueueAsync(async () =>
         {
-            if (NowPlaying.Chapters.Count == 0)
+            try
             {
-                NowPlaying = null;
+                if (NowPlaying.Chapters.Count == 0)
+                {
+                    NowPlaying = null;
 
-                await DialogService.ShowErrorDialogAsync("Error",
-                    "An error occurred while trying to open the selected audiobook. " +
-                    "The chapters could not be loaded. Please try importing the audiobook again.");
+                    await DialogService.ShowErrorDialogAsync("Error",
+                        "An error occurred while trying to open the selected audiobook. " +
+                        "The chapters could not be loaded. Please try importing the audiobook again.");
 
-                return;
+                    return;
+                }
+
+                SyncCurrentChapterState();
+
+                CurrentPosition = TimeSpan.FromMilliseconds(NowPlaying.CurrentTimeMs);
+
+                _mediaPlayer.SetRate((float)PlaybackSpeed);
+
+                if (_pendingAutoPlay || _playWhenMediaOpens)
+                {
+                    _pendingAutoPlay = false;
+                }
+                else
+                {
+                    _mediaPlayer.Pause();
+                }
+
+                _playWhenMediaOpens = false;
             }
-
-            SyncCurrentChapterState();
-
-            CurrentPosition = TimeSpan.FromMilliseconds(NowPlaying.CurrentTimeMs);
-
-            _mediaPlayer.SetRate((float)PlaybackSpeed);
-
-            if (_pendingAutoPlay || _playWhenMediaOpens)
+            finally
             {
-                _pendingAutoPlay = false;
+                Interlocked.Exchange(ref _suspendTimeChangedUpdates, 0);
             }
-            else
-            {
-                _mediaPlayer.Pause();
-            }
-
-            _playWhenMediaOpens = false;
         });
     }
 
@@ -593,6 +607,7 @@ public class PlayerViewModel : BindableBase, IDisposable
             await NowPlaying.SaveAsync();
         });
 
+        Interlocked.Exchange(ref _suspendTimeChangedUpdates, 1);
         _playWhenMediaOpens = autoPlay;
         _mediaJustOpened = true;
         using (var media = new Media(_libVLC, audiobook.CurrentSourceFile.FilePath, FromType.FromPath))
@@ -624,6 +639,7 @@ public class PlayerViewModel : BindableBase, IDisposable
 
         await NowPlaying.SaveAsync();
 
+        Interlocked.Exchange(ref _suspendTimeChangedUpdates, 1);
         _playWhenMediaOpens = playWhenOpened;
         _mediaJustOpened = true;
         using (var media = new Media(_libVLC, NowPlaying.CurrentSourceFile.FilePath, FromType.FromPath))
