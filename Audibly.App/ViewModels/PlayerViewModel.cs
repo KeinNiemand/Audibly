@@ -60,11 +60,13 @@ public class PlayerViewModel : BindableBase, IDisposable
 
     private bool _mediaJustOpened;
 
+    private bool _playWhenMediaOpens;
+
     private bool _skipSeeking;
 
     public PlayerViewModel()
     {
-        _libVLC = new LibVLC("--no-video");
+        _libVLC = new LibVLC("--no-video", "--audio-resampler=soxr");
         _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
         InitializeAudioPlayer();
     }
@@ -380,28 +382,21 @@ public class PlayerViewModel : BindableBase, IDisposable
                 return;
             }
 
-            ChapterComboSelectedIndex = NowPlaying.CurrentChapterIndex ?? 0;
+            SyncCurrentChapterState();
 
-            ChapterDurationMs = (int)(NowPlaying.CurrentChapter.EndTime - NowPlaying.CurrentChapter.StartTime);
-
-            ChapterPositionMs =
-                NowPlaying.CurrentTimeMs > NowPlaying.CurrentChapter.StartTime
-                    ? (int)(NowPlaying.CurrentTimeMs - NowPlaying.CurrentChapter.StartTime)
-                    : 0;
-
-            // Seek to saved position
-            _mediaPlayer.Time = NowPlaying.CurrentTimeMs;
+            CurrentPosition = TimeSpan.FromMilliseconds(NowPlaying.CurrentTimeMs);
 
             _mediaPlayer.SetRate((float)PlaybackSpeed);
 
-            if (_pendingAutoPlay)
+            if (_pendingAutoPlay || _playWhenMediaOpens)
             {
                 _pendingAutoPlay = false;
-                // Already playing since we used _mediaPlayer.Play() to open
+                _playWhenMediaOpens = false;
+                Play();
             }
             else
             {
-                // We started playing to trigger media load — pause now since user didn't press play
+                _playWhenMediaOpens = false;
                 _mediaPlayer.Pause();
             }
         });
@@ -534,8 +529,18 @@ public class PlayerViewModel : BindableBase, IDisposable
 
     public async Task OpenAudiobook(AudiobookViewModel audiobook)
     {
+        await OpenAudiobook(audiobook, false);
+    }
+
+    public async Task OpenAudiobook(AudiobookViewModel audiobook, bool autoPlay)
+    {
         if (NowPlaying != null && NowPlaying.Equals(audiobook))
+        {
+            if (autoPlay)
+                Play();
+
             return;
+        }
 
         // todo: trying this out
         if (NowPlaying != null)
@@ -584,10 +589,12 @@ public class PlayerViewModel : BindableBase, IDisposable
 
             ChapterComboSelectedIndex = NowPlaying.CurrentChapterIndex ?? 0;
             NowPlaying.CurrentChapterTitle = NowPlaying.Chapters[ChapterComboSelectedIndex].Title;
+            SyncCurrentChapterState();
 
             await NowPlaying.SaveAsync();
         });
 
+        _playWhenMediaOpens = autoPlay;
         _mediaJustOpened = true;
         using (var media = new Media(_libVLC, audiobook.CurrentSourceFile.FilePath, FromType.FromPath))
         {
@@ -598,22 +605,27 @@ public class PlayerViewModel : BindableBase, IDisposable
 
     }
 
-    public async void OpenSourceFile(int index, int chapterIndex)
+    public async void OpenSourceFile(int index, int chapterIndex, bool? autoPlay = null)
     {
         if (NowPlaying == null || NowPlaying.CurrentSourceFileIndex == index)
             return;
 
-        NowPlaying.CurrentTimeMs = 0;
+        var playWhenOpened = autoPlay ?? _mediaPlayer.IsPlaying;
+        var chapter = NowPlaying.Chapters[chapterIndex];
+
+        NowPlaying.CurrentTimeMs = (int)chapter.StartTime;
         NowPlaying.CurrentSourceFileIndex = index;
         NowPlaying.CurrentChapterIndex = chapterIndex;
 
         await _dispatcherQueue.EnqueueAsync(() =>
         {
-            NowPlaying.CurrentChapterTitle = NowPlaying.Chapters[chapterIndex].Title;
+            NowPlaying.CurrentChapterTitle = chapter.Title;
+            SyncCurrentChapterState();
         });
 
         await NowPlaying.SaveAsync();
 
+        _playWhenMediaOpens = playWhenOpened;
         _mediaJustOpened = true;
         using (var media = new Media(_libVLC, NowPlaying.CurrentSourceFile.FilePath, FromType.FromPath))
         {
@@ -621,6 +633,19 @@ public class PlayerViewModel : BindableBase, IDisposable
             _mediaPlayer.Play(media);
         }
 
+    }
+
+    private void SyncCurrentChapterState()
+    {
+        if (NowPlaying == null)
+            return;
+
+        ChapterComboSelectedIndex = NowPlaying.CurrentChapterIndex ?? 0;
+        ChapterDurationMs = (int)(NowPlaying.CurrentChapter.EndTime - NowPlaying.CurrentChapter.StartTime);
+        ChapterPositionMs =
+            NowPlaying.CurrentTimeMs > NowPlaying.CurrentChapter.StartTime
+                ? (int)(NowPlaying.CurrentTimeMs - NowPlaying.CurrentChapter.StartTime)
+                : 0;
     }
 
     # endregion

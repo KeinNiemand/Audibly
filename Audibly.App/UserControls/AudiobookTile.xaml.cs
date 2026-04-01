@@ -67,10 +67,7 @@ public sealed partial class AudiobookTile : UserControl
         if (audiobook == null) return;
         await _dispatcherQueue.EnqueueAsync(async () =>
         {
-            await PlayerViewModel.OpenAudiobook(audiobook);
-
-            // todo: this really breaks shit
-            // PlayerViewModel.MediaPlayer.Play();
+            await PlayerViewModel.OpenAudiobook(audiobook, true);
         });
     }
 
