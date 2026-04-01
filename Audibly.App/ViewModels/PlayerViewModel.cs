@@ -290,7 +290,7 @@ public class PlayerViewModel : BindableBase, IDisposable
     /// </summary>
     public void Pause()
     {
-        _mediaPlayer.Pause();
+        _mediaPlayer.SetPause(true);
     }
 
     #region methods
@@ -433,7 +433,7 @@ public class PlayerViewModel : BindableBase, IDisposable
         else
         {
             // We started playing to trigger media load — pause now since user didn't press play
-            _mediaPlayer.Pause();
+            _mediaPlayer.SetPause(true);
         }
 
         _mediaJustOpened = false;
@@ -498,7 +498,7 @@ public class PlayerViewModel : BindableBase, IDisposable
             // Timer expired - pause playback
             _dispatcherQueue.TryEnqueue(() =>
             {
-                _mediaPlayer.Pause();
+                _mediaPlayer.SetPause(true);
                 IsTimerActive = false;
                 _sleepTimer?.Stop();
                 _sleepTimer?.Dispose();
@@ -583,7 +583,7 @@ public class PlayerViewModel : BindableBase, IDisposable
                 await NowPlaying.SaveAsync();
             }
 
-            _mediaPlayer.Pause();
+            _mediaPlayer.SetPause(true);
 
             App.ViewModel.SelectedAudiobook = audiobook;
 
